@@ -11,32 +11,29 @@ C:/Users/19353/WorkBuddy/2026-10-26-16-11-08/photosweep/app
 > 注意：要上传的是这个 `app` 文件夹**里面的内容**，不是把 `app` 文件夹本身拖上去。
 > 拖错的效果就是在仓库里多出一层 `app/`，GitHub Actions 在根目录找不到 package.json，就会报你看到的那个 ENOENT。
 
-## 1.5 如果报错「open './assets/icon.png'」找不到
+## 1.5 图标怎么传（自定义图标已做好，必须传这两个 png）
 
-原因是 `assets/` 里那 3 个 png **没法通过 GitHub 网页粘贴上传**（网页编辑器只接受纯文本）。
-现在有两条路，任选一条即可：
+`assets/` 里那 3 个 png **没法用网页「粘贴」上传**（网页编辑器只收纯文本），但**可以拖拽上传**，二进制文件走拖拽完全没问题。
 
-**方案 A（推荐，不用传图片）**：把本目录最新的 `.github/workflows/android.yml` 重新覆盖到仓库，
-工作流里已经内置了图标生成器——检测到 `assets/` 缺失时会在 prebuild 之前用纯 Python 现场画出图标，
-耗时约 10 秒，打包流程完全不受影响。
+这一次要换桌面图标，所以：
 
-**方案 B（不想改工作流）**：让 `app.json` 不引用本地图片。把文件里的这两段删掉即可：
+1. 仓库首页 → `Add file` → `Upload files`
+2. 把 `assets` 里的 **`icon.png`** 和 **`adaptive-icon.png`** 拖进去
+3. 关键一步：文件列表里把这两个文件名改成带路径的形式 —— `assets/icon.png`、`assets/adaptive-icon.png`
+   （GitHub 看到 `/` 会自动放进 assets 文件夹；如果你能先进到仓库的 assets 文件夹再点 Upload files，就不用改路径）
+4. `Commit changes`
+5. 打开 Actions 跑一次构建，在「准备应用图标」这一步的日志里应该看到
+   `图标校验通过 ✅ 本次打包会使用 assets/icon.png（约 800000 字节）`。
+   如果看到黄色的 `像是旧的占位图标` 警告，说明 png 没传上去，桌面图标不会变。
 
-```jsonc
-    "icon": "./assets/icon.png",          // ← 删掉这一行
-```
-```jsonc
-      "adaptiveIcon": {                    // ← 删掉整个 adaptiveIcon 块
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0A1A15"
-      },
-```
+`assets/splash-icon.png` 可选，不传也不影响。
 
-删完 `app.json` 依然合法，prebuild 会用 Expo 的默认图标，能正常出包，只是图标比较朴素。
-（这条我已经在本机实测：无 `assets/` + 不引用图标 → prebuild 成功。）
+### 以前遇到过的两个坑（已经修好，留个记录）
 
-想保留自定义图标又想省事：把 `assets` 文件夹里的 3 个 png 单独拖到仓库的 `Upload files` 页面即可，
-二进制文件走拖拽上传是没问题的，只是不能「粘贴」。
+- 报 `ENOENT package.json`：传的是 `app` 文件夹本身，多了一层目录。要传的是 `app` **里面的内容**。
+- 报 `open './assets/icon.png'` 找不到：当时仓库里没有 `assets/`。现在工作流内置了兜底生成器（`assets/` 缺失时用纯 Python 现场画一个占位图标），保证一定能出包；但兜底图标是朴素的绿色方块，想要自定义图标就必须把 png 传上去。
+
+也可以让 `app.json` 完全不引用本地图片（删掉 `"icon"` 行和整段 `adaptiveIcon`），prebuild 会用 Expo 默认图标，能出包但图标很朴素。
 
 ## 2. 仓库根目录必须长这样
 
@@ -113,7 +110,7 @@ C:/Users/19353/WorkBuddy/2026-10-26-16-11-08/photosweep/app
   "expo": {
     "name": "PhotoSweep",
     "slug": "photosweep",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "photosweep",
@@ -122,10 +119,10 @@ C:/Users/19353/WorkBuddy/2026-10-26-16-11-08/photosweep/app
     "assetBundlePatterns": ["**/*"],
     "android": {
       "package": "com.photosweep.app",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0A1A15"
+        "backgroundColor": "#BBCFBF"
       },
       "permissions": [
         "android.permission.READ_MEDIA_IMAGES",
