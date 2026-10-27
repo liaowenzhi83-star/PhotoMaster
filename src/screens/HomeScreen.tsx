@@ -22,10 +22,12 @@ export function HomeScreen({ s }: { s: Session }) {
           : '等待授权';
 
   const accessTone = s.access === 'granted' ? c.keep : s.access === 'limited' ? c.warn : c.trash;
-  const available = s.library.length;
+  /** 只算「还没处理过」的：处理过的（保留或删除）永远不再进卡片 */
+  const available = s.pendingCount;
   const limit = MODES[mode].count;
   const willUse = Number.isFinite(limit) ? Math.min(limit, available) : available;
   const canStart = available > 0 && (s.access === 'granted' || s.access === 'limited');
+  const noPending = available === 0;
 
   return (
     <View style={styles.root}>
@@ -52,12 +54,12 @@ export function HomeScreen({ s }: { s: Session }) {
           <View style={styles.albumTop}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.albumNum, { color: c.text }]}>
-                {s.loading ? '读取中…' : `${s.albumTotal || 0}`}
-                {!s.loading && <Text style={[styles.albumUnit, { color: c.textDim }]}> 张照片</Text>}
+                {s.loading ? '读取中…' : `${available}`}
+                {!s.loading && <Text style={[styles.albumUnit, { color: c.textDim }]}> 张待整理</Text>}
               </Text>
               <Text style={[styles.albumHint, { color: c.textMute }]}>
                 {s.access === 'granted' || s.access === 'limited'
-                  ? `本次已载入 ${available} 张用于清理`
+                  ? `相册共 ${s.albumTotal} 张 · 已整理 ${s.decidedTotal} 张`
                   : '授予权限后才能读出真实相册'}
               </Text>
             </View>
@@ -67,7 +69,9 @@ export function HomeScreen({ s }: { s: Session }) {
             </View>
           </View>
 
-          {(!canStart || s.access === 'limited') && (
+          {/* 只在"权限还没拿全"时出现。不能再用 canStart 判断，
+              否则没有待整理照片时也会错误地显示"授予相册权限" */}
+          {s.access !== 'granted' && (
             <View style={{ marginTop: 14, gap: 8 }}>
               <Button
                 label={s.access === 'limited' ? '继续授权更多照片' : '授予相册权限'}
@@ -80,13 +84,42 @@ export function HomeScreen({ s }: { s: Session }) {
           )}
         </View>
 
+        {/* 相册里一张待整理的都不剩了 → 明确的完成反馈，而不是让用户面对空列表 */}
+        {noPending && !s.loading && (s.access === 'granted' || s.access === 'limited') && (
+          <View
+            style={[
+              styles.allDone,
+              { backgroundColor: c.keepSoft, borderColor: c.keep + '55' },
+            ]}
+          >
+            <Text style={[styles.allDoneTitle, { color: c.keep }]}>
+              {s.allDone ? '🎉 照片已全部整理完毕' : '✨ 暂时没有待整理的照片'}
+            </Text>
+            <Text style={[styles.allDoneDesc, { color: c.textDim }]}>
+              {s.allDone
+                ? `相册里的 ${s.albumTotal} 张照片你都做过选择了，不会再重复出现在卡片里。`
+                : '拍了新照片、或者点下面重新扫描，就会有新的卡片可以滑。'}
+            </Text>
+            <Pressable onPress={() => s.load()} hitSlop={6} style={{ marginTop: 10, alignSelf: 'flex-start' }}>
+              <Text style={{ color: c.accent, fontSize: 12.5, fontWeight: '700' }}>重新扫描相册 ›</Text>
+            </Pressable>
+          </View>
+        )}
+
         {/* 批次模式 */}
         <Text style={[styles.section, { color: c.textMute }]}>这次想清理多少？</Text>
         <View style={{ gap: 10 }}>
           {MODE_LIST.map((key) => {
             const m = MODES[key];
             const active = mode === key;
-            const countText = Number.isFinite(m.count) ? `${m.count} 张` : '不限张数';
+            /** 待整理不够整批时，直接告诉用户实际能滑多少张 */
+            const countText = Number.isFinite(m.count)
+              ? available > 0 && m.count > available
+                ? `剩 ${available} 张`
+                : `${m.count} 张`
+              : available > 0
+                ? `剩 ${available} 张`
+                : '不限张数';
             return (
               <Pressable
                 key={key}
@@ -122,6 +155,7 @@ export function HomeScreen({ s }: { s: Session }) {
         <Text style={[styles.footNote, { color: c.textMute }]}>
           左滑保留、右滑标记删除；本批结束会先进入「终审复判」，
           确认无误后才调用系统删除，误点随时能移回。
+          {'\n'}处理过的照片会记在本机，之后任何批次都不会再出现。
         </Text>
 
         {/* 三步流程，让第一次用的人知道会发生什么 */}
@@ -147,7 +181,15 @@ export function HomeScreen({ s }: { s: Session }) {
 
       <View style={[styles.footer, { borderTopColor: c.line }]}>
         <Button
-          label={canStart ? `开始清理 · ${willUse} 张` : '等待相册授权'}
+          label={
+            s.loading
+              ? '正在读取相册…'
+              : canStart
+                ? `开始清理 · ${willUse} 张`
+                : noPending
+                  ? '照片已全部整理完毕'
+                  : '等待相册授权'
+          }
           onPress={() => s.start(mode)}
           disabled={!canStart}
           loading={s.loading}
@@ -188,6 +230,15 @@ const styles = StyleSheet.create({
   pillDot: { width: 6, height: 6, borderRadius: 3 },
   pillText: { fontSize: 10.5, fontWeight: '600', flexShrink: 1 },
   notice: { fontSize: 12, lineHeight: 18 },
+  allDone: {
+    marginTop: 14,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+  },
+  allDoneTitle: { fontSize: 14.5, fontWeight: '800', letterSpacing: 0.2 },
+  allDoneDesc: { fontSize: 11.5, lineHeight: 18, marginTop: 5 },
   section: { fontSize: 12, fontWeight: '700', letterSpacing: 0.6, marginTop: 24, marginBottom: 10 },
   modeCard: {
     flexDirection: 'row',

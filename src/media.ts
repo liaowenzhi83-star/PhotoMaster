@@ -85,35 +85,88 @@ function annotateBursts(items: PhotoItem[]): void {
   }
 }
 
-export type LibraryResult = { items: PhotoItem[]; total: number; hasMore: boolean };
+export type LibraryResult = { items: PhotoItem[]; complete: boolean };
 
-/** 读取相册（最多 max 张，按拍摄时间倒序） */
-export async function loadLibrary(max = 1000): Promise<LibraryResult> {
+/** 单页条数：够大以减少查询次数，又不会一次占太多内存 */
+const PAGE_SIZE = 1000;
+/** 硬上限，防极端相册（十万张）把首屏拖死；超过则标记为"未扫完" */
+const MAX_SCAN = 40000;
+
+function toItem(m: { id: string; creationTime?: number | null; modificationTime?: number | null; width?: number | null; height?: number | null; filename?: string | null }): PhotoItem {
+  const filename = m.filename ?? '';
+  return {
+    id: m.id,
+    // uri 惰性解析：几百张全部解析会明显拖慢首屏
+    date: toMs(m.creationTime) || toMs(m.modificationTime) || Date.now(),
+    width: m.width ?? undefined,
+    height: m.height ?? undefined,
+    filename,
+    kind: detectKind(filename),
+  };
+}
+
+async function queryPage(offset: number, limit: number): Promise<PhotoItem[]> {
+  const metas = await new Query()
+    .eq(AssetField.MEDIA_TYPE, MediaType.IMAGE)
+    .orderBy({ key: AssetField.CREATION_TIME, ascending: false })
+    .offset(offset)
+    .limit(limit)
+    .exeForMetadata();
+  return metas.map(toItem);
+}
+
+/**
+ * 扫描整个相册（按拍摄时间倒序）。
+ *
+ * 为什么要翻页扫全量，而不是只取前 N 张：
+ * - 判断"是不是全都整理完了"必须知道相册到底有多少张，
+ *   截断到 1000 张会永远扫不到更早的历史照片，用户就卡在同一个圈里；
+ * - 分页之后，"最新优先、不够自动往更早回溯"是天然成立的：
+ *   只要按时间倒序过滤掉已处理的，取前 N 张就是正确结果。
+ *
+ * @param onFirstPage 第一页到达时回调，用于先渲染首屏、再后台继续扫
+ */
+export async function loadAlbum(onFirstPage?: (items: PhotoItem[]) => void): Promise<LibraryResult> {
+  const items: PhotoItem[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  let complete = false;
+  let firstDelivered = false;
+
   try {
-    const metas = await new Query()
-      .eq(AssetField.MEDIA_TYPE, MediaType.IMAGE)
-      .orderBy({ key: AssetField.CREATION_TIME, ascending: false })
-      .limit(max)
-      .exeForMetadata();
+    for (;;) {
+      const page = await queryPage(offset, PAGE_SIZE);
+      if (!page.length) {
+        complete = true;
+        break;
+      }
 
-    const items: PhotoItem[] = metas.map((m) => {
-      const filename = m.filename ?? '';
-      return {
-        id: m.id,
-        // uri 惰性解析：几百张全部解析会明显拖慢首屏
-        date: toMs(m.creationTime) || toMs(m.modificationTime) || Date.now(),
-        width: m.width ?? undefined,
-        height: m.height ?? undefined,
-        filename,
-        kind: detectKind(filename),
-      };
-    });
+      for (const p of page) {
+        if (seen.has(p.id)) continue; // 翻页期间相册变动导致的重复
+        seen.add(p.id);
+        items.push(p);
+      }
+      offset += page.length;
 
-    annotateBursts(items);
-    return { items, total: items.length, hasMore: items.length >= max };
+      if (page.length < PAGE_SIZE) {
+        complete = true;
+        break;
+      }
+      if (offset >= MAX_SCAN) break;
+
+      // 第一页给出去让首页立刻有内容，剩下的在后台继续
+      if (!firstDelivered && onFirstPage) {
+        firstDelivered = true;
+        onFirstPage(items.slice());
+      }
+    }
   } catch {
-    return { items: [], total: 0, hasMore: false };
+    // 中途失败：已拿到的照常返回，但标记为未扫完，避免误判"全部整理完毕"
+    return { items, complete: false };
   }
+
+  annotateBursts(items);
+  return { items, complete };
 }
 
 /** 取可展示的 uri（Android 上是 MediaStore 给的可读路径） */

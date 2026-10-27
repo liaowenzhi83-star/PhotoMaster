@@ -3,7 +3,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme';
 import { Button } from '../components/ui';
 import { fmtSize } from '../format';
-import { MODES } from '../types';
 import type { Session } from '../useSession';
 
 export function DoneScreen({ s }: { s: Session }) {
@@ -54,7 +53,10 @@ export function DoneScreen({ s }: { s: Session }) {
 
         <Text style={[styles.foot, { color: c.textMute }]}>
           被删掉的照片在系统相册的「回收站 / 最近删除」里通常还能存 30 天。
-          清掉相册里剩下的 {s.library.length} 张，可以再来一轮。
+          {'\n'}
+          {s.pendingCount > 0
+            ? `相册里还有 ${s.pendingCount} 张没整理过，可以接着清。`
+            : '相册里的照片都做过选择了，不会再有重复的卡片冒出来。'}
         </Text>
       </ScrollView>
 
@@ -62,9 +64,11 @@ export function DoneScreen({ s }: { s: Session }) {
         <Button label="回到首页" tone="subtle" onPress={s.goHome} style={{ flex: 1 }} />
         <View style={{ width: 10 }} />
         <Button
-          label={`再来一批 · ${MODES[s.mode].name}`}
+          label={
+            s.pendingCount > 0 ? `再来一批 · 剩 ${s.pendingCount} 张` : '已全部整理完毕'
+          }
           onPress={() => s.start(s.mode)}
-          disabled={!s.library.length}
+          disabled={s.pendingCount === 0}
           style={{ flex: 1.5 }}
         />
       </View>
